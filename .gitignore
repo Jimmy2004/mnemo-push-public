@@ -13,3 +13,4 @@ mnemo-queue/
 .mnemo-push.state.json
 __pycache__/
 .DS_Store
+*.apk
