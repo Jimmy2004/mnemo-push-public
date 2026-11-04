@@ -1,5 +1,6 @@
 package dev.mnemo.push
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
@@ -58,10 +59,15 @@ class MainActivity : AppCompatActivity() {
         battery = findViewById(R.id.battery)
 
         val save = findViewById<ExtendedFloatingActionButton>(R.id.save)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.scroll)) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            v.updatePadding(bottom = bars.bottom + dp(96))
-            (save.layoutParams as android.view.ViewGroup.MarginLayoutParams).bottomMargin = bars.bottom + dp(16)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime()
+                or WindowInsetsCompat.Type.displayCutout())
+            findViewById<android.view.View>(R.id.scroll)
+                .updatePadding(left = bars.left, right = bars.right, bottom = bars.bottom + dp(96))
+            findViewById<android.view.View>(R.id.appBar).updatePadding(left = bars.left, right = bars.right)
+            (save.layoutParams as android.view.ViewGroup.MarginLayoutParams).apply {
+                bottomMargin = bars.bottom + dp(16); rightMargin = bars.right + dp(16)
+            }
             save.requestLayout()
             insets
         }
@@ -97,7 +103,15 @@ class MainActivity : AppCompatActivity() {
 
         BootGuard.markOpened(this)   // 用户打开过应用：关闭自启动时也恢复同步
         fill(Config())
-        lifecycleScope.launch { fill(withContext(Dispatchers.IO) { SecureStore.load(applicationContext) }) }
+        lifecycleScope.launch {
+            val (config, error) = withContext(Dispatchers.IO) { SecureStore.loadForUi(applicationContext) }
+            fill(config)
+            if (error != null) {
+                statusTitle.text = "需要重新配置"; statusDetail.text = error
+                MaterialAlertDialogBuilder(this@MainActivity).setTitle("需要重新填写密钥").setMessage(error)
+                    .setPositiveButton("知道了", null).show()
+            }
+        }
     }
 
     override fun onResume() { super.onResume(); refresh() }
@@ -133,8 +147,16 @@ class MainActivity : AppCompatActivity() {
             snack(if (gateway) "剪贴板里没有找到极米记得通行证" else "剪贴板里没有找到 PUSH_URL / PUSH_KEY")
             return
         }
-        fill(parsed.applyTo(currentConfig()))
-        if ((parsed.token != null || parsed.pushKey != null) && Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
+        // 只写入解析到的字段，不触碰其它未保存的输入
+        parsed.token?.let { token.setText(it) }
+        parsed.agent?.let { agent.setText(it) }
+        parsed.gatewayPort?.let { port.setText(it.toString()) }
+        parsed.pushUrl?.let { pushUrl.setText(it) }
+        parsed.pushKey?.let { pushKey.setText(it) }
+        if (parsed.token != null || parsed.pushKey != null) {
+            if (Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
+            else clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+        }
         snack("已填入：${parsed.summary()}，确认后点「保存」")
     }
 
@@ -204,8 +226,11 @@ class MainActivity : AppCompatActivity() {
             .setTitle("允许自启动")
             .setMessage(Oem.autostartSteps() + "\n\n点「前往设置」将尝试直接打开系统的自启动管理页面。")
             .setPositiveButton("前往设置") { _, _ ->
-                val hit = runCatching { Oem.openAutostart(this) }.getOrDefault(false)
-                if (!hit) snack("未找到自启动页面，已打开应用详情，请按说明手动设置")
+                when (runCatching { Oem.openAutostart(this) }.getOrDefault(Oem.Opened.NONE)) {
+                    Oem.Opened.AUTOSTART_PAGE -> {}
+                    Oem.Opened.APP_DETAILS -> snack("未找到自启动页面，已打开应用详情，请按说明手动设置")
+                    Oem.Opened.NONE -> snack("无法打开系统设置，请按说明手动设置")
+                }
             }
             .setNegativeButton("取消", null)
             .show()

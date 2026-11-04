@@ -14,12 +14,20 @@ object BootGuard {
     private fun bootCount(ctx: Context) =
         runCatching { Settings.Global.getInt(ctx.contentResolver, Settings.Global.BOOT_COUNT) }.getOrDefault(-1)
 
-    fun markOpened(ctx: Context) = prefs(ctx).edit().putInt("boot", bootCount(ctx)).apply()
+    private fun bootWallMs() = System.currentTimeMillis() - android.os.SystemClock.elapsedRealtime()
+
+    fun markOpened(ctx: Context) =
+        prefs(ctx).edit().putInt("boot", bootCount(ctx)).putLong("bootWall", bootWallMs()).apply()
 
     fun rebootedSinceOpened(ctx: Context): Boolean {
+        val p = prefs(ctx)
         val now = bootCount(ctx)
-        val saved = prefs(ctx).getInt("boot", -1)
-        return now >= 0 && saved >= 0 && now != saved
+        val saved = p.getInt("boot", -1)
+        if (now >= 0 && saved >= 0) return now != saved
+        // 备用：开机时刻偏差超过 2 分钟视为重启（容忍校时漂移）
+        val savedWall = p.getLong("bootWall", -1)
+        if (savedWall > 0) return kotlin.math.abs(bootWallMs() - savedWall) > 120_000
+        return true   // 无法判断：保守暂停，打开应用后恢复
     }
 
     /** 开关决定是否接收开机广播。 */
@@ -35,10 +43,12 @@ object BootGuard {
 /** 开机或应用更新后重新登记定时同步（开启“自启动”时才会收到）。 */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        val config = SecureStore.load(ctx)
+        val config = runCatching { SecureStore.load(ctx) }.getOrElse {
+            RecentLog.append(ctx, "开机自启：${it.message}"); return
+        }
         if (!config.autoStart) return
         Scheduler.apply(ctx, config)
-        RecentLog.append(ctx, "开机自启：已恢复定时同步", config)
+        if (config.autoSync) RecentLog.append(ctx, "开机自启：已恢复定时同步", config)
     }
 }
 
@@ -46,34 +56,39 @@ class BootReceiver : BroadcastReceiver() {
 object Oem {
     val brand: String = Build.MANUFACTURER.lowercase()
 
-    private val autostart = listOf(
-        // OPPO / 一加 / realme（ColorOS）
-        ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
-        ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
-        ComponentName("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity"),
-        ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"),
-        // 小米 / 红米（MIUI / HyperOS）
-        ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
-        // 华为 / 荣耀
-        ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
-        ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity"),
-        ComponentName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
-        // vivo / iQOO
-        ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
-        ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"),
-        // 三星
-        ComponentName("com.samsung.android.lool", "com.samsung.android.sm.battery.ui.BatteryActivity"),
+    private fun c(pkg: String, cls: String) = ComponentName(pkg, cls)
+
+    /** 仅自启动管理页面，按品牌分组，避免误开其它厂商或无关页面。 */
+    private val autostart: Map<Set<String>, List<ComponentName>> = mapOf(
+        setOf("oppo", "oneplus", "realme") to listOf(
+            c("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"),
+            c("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"),
+            c("com.oplus.safecenter", "com.oplus.safecenter.startupapp.StartupAppListActivity"),
+            c("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")),
+        setOf("xiaomi", "redmi", "poco") to listOf(
+            c("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
+        setOf("huawei", "honor") to listOf(
+            c("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            c("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+        setOf("vivo", "iqoo") to listOf(
+            c("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+            c("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager")),
     )
 
-    /** 打开厂商自启动页面；都不可用时退回应用详情页。返回是否命中厂商页面。 */
-    fun openAutostart(ctx: Context): Boolean {
-        for (c in autostart) {
-            val i = Intent().setComponent(c).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (runCatching { ctx.startActivity(i) }.isSuccess) return true
+    enum class Opened { AUTOSTART_PAGE, APP_DETAILS, NONE }
+
+    /** 先尝试本品牌的自启动页；失败则打开应用详情页；都失败返回 NONE。 */
+    fun openAutostart(ctx: Context): Opened {
+        val pm = ctx.packageManager
+        val candidates = autostart.entries.firstOrNull { brand in it.key }?.value.orEmpty()
+        for (comp in candidates) {
+            val i = Intent().setComponent(comp).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (i.resolveActivity(pm) == null) continue
+            if (runCatching { ctx.startActivity(i) }.isSuccess) return Opened.AUTOSTART_PAGE
         }
-        ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        return false
+        val details = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return if (runCatching { ctx.startActivity(details) }.isSuccess) Opened.APP_DETAILS else Opened.NONE
     }
 
     fun autostartSteps(): String = when {

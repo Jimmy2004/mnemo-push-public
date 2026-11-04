@@ -27,7 +27,7 @@ data class Config(
     val hasPush get() = pushUrl.startsWith("https://") && pushKey.isNotBlank()
 }
 
-class SyncException(message: String) : Exception(message)
+open class SyncException(message: String) : Exception(message)
 
 /** 本机 mnemosyne gateway 客户端，签名方式与官方 bridge v10 一致，并校验响应签名。 */
 class Gateway(config: Config, private val base: String = "http://127.0.0.1:${config.gatewayPort}") {
@@ -95,7 +95,7 @@ class Syncer(private val config: Config, private val dir: File, private val log:
         val pullResult = if (config.hasGateway) runCatching { pull() } else kotlin.Result.success(0)
         val pushed = if (config.hasPush) push() else 0
         val pulled = pullResult.getOrThrow()
-        val pending = queue.listFiles()?.size ?: 0
+        val pending = queue.listFiles { x -> x.name.endsWith(".ndjson") }?.size ?: 0
         return Result(pulled, pushed, pending, loadSinceId())
     }
 
@@ -138,8 +138,11 @@ class Syncer(private val config: Config, private val dir: File, private val log:
         items += results(gw.call("get_open_loops", JSONObject().put("days", config.days).put("limit", 200), 15_000))
 
         if (items.isNotEmpty()) {
-            File(queue, "${System.currentTimeMillis() / 1000}.ndjson")
-                .writeText(items.joinToString("") { it.toString() + "\n" })
+            // 毫秒时间戳（定长，保证排序）+ UUID，永不覆盖；先写 .tmp 再原子改名，成功后才推进游标
+            val name = "%013d-%s".format(System.currentTimeMillis(), java.util.UUID.randomUUID())
+            val tmp = File(queue, "$name.tmp")
+            tmp.writeText(items.joinToString("") { it.toString() + "\n" })
+            if (!tmp.renameTo(File(queue, "$name.ndjson"))) { tmp.delete(); throw java.io.IOException("队列写入失败") }
         }
         saveSinceId(since)
         log("拉取 ${items.size} 条，transcript_since_id=$since")

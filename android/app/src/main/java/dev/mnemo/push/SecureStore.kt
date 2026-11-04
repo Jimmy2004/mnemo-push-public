@@ -32,14 +32,33 @@ object SecureStore {
         return Base64.encodeToString(cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
     }
 
-    private fun decrypt(value: String?): String = runCatching {
-        if (value.isNullOrEmpty()) return@runCatching ""
+    /** 已保存的密钥无法解密（Keystore 被清除、数据损坏等）。 */
+    class DecryptException : SyncException("已保存的通行证或推送密钥无法解密，请重新填写并保存")
+
+    /** 未保存返回 ""；保存过但解密失败抛 DecryptException（不再静默当成“未配置”）。 */
+    private fun decrypt(value: String?): String {
+        if (value.isNullOrEmpty()) return ""
+        return runCatching { decryptOrThrow(value) }.getOrElse { throw DecryptException() }
+    }
+
+    private fun decryptOrThrow(value: String): String = run {
         val bytes = Base64.decode(value, Base64.NO_WRAP)
         require(bytes.size >= 28)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
         String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
-    }.getOrDefault("")
+    }
+
+    /** 界面用：解密失败时返回去掉密钥的配置和错误提示，让用户重新填写。 */
+    fun loadForUi(ctx: Context): Pair<Config, String?> = try {
+        load(ctx) to null
+    } catch (e: DecryptException) {
+        val p = prefs(ctx)
+        Config(agent = p.getString("agent", "claude") ?: "claude", pushUrl = p.getString("pushUrl", "") ?: "",
+            autoSync = p.getBoolean("autoSync", false), intervalMinutes = p.getInt("intervalMinutes", 15),
+            days = p.getInt("days", 2), gatewayPort = p.getInt("gatewayPort", 8723),
+            autoStart = p.getBoolean("autoStart", true)) to e.message
+    }
 
     fun load(ctx: Context): Config = prefs(ctx).let {
         Config(decrypt(it.getString("token", null)), it.getString("agent", "claude") ?: "claude",
