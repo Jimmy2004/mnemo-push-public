@@ -28,6 +28,11 @@ data class ParsedPrompt(
         if (pushKey != null) add("PUSH_KEY")
     }.joinToString("、")
 
+    val hasGateway get() = token != null || agent != null || gatewayPort != null
+    val hasPush get() = pushUrl != null || pushKey != null
+    fun gatewayOnly() = copy(pushUrl = null, pushKey = null)
+    fun pushOnly() = ParsedPrompt(pushUrl = pushUrl, pushKey = pushKey)
+
     fun applyTo(c: Config) = c.copy(
         token = token ?: c.token,
         agent = agent ?: c.agent,

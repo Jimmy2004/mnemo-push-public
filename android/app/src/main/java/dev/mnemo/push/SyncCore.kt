@@ -21,6 +21,7 @@ data class Config(
     val intervalMinutes: Int = 15,
     val days: Int = 2,
     val gatewayPort: Int = 8723,
+    val autoStart: Boolean = true,
 ) {
     val hasGateway get() = token.indexOf('.') in 1 until token.length - 1
     val hasPush get() = pushUrl.startsWith("https://") && pushKey.isNotBlank()

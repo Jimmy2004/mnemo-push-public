@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/appBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fitsSystemWindows="true"
+        app:liftOnScroll="true">
+
+        <com.google.android.material.appbar.CollapsingToolbarLayout
+            style="?attr/collapsingToolbarLayoutLargeStyle"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/collapsingToolbarLayoutLargeSize"
+            app:layout_scrollFlags="scroll|exitUntilCollapsed|snap">
+
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="?attr/actionBarSize"
+                android:elevation="0dp"
+                app:layout_collapseMode="pin"
+                app:title="Mnemo Push" />
+        </com.google.android.material.appbar.CollapsingToolbarLayout>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="112dp"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="16dp">
+
+            <!-- 状态 -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Mnemo.Card"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statusTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="尚未同步"
+                        android:textAppearance="?attr/textAppearanceHeadlineSmall"
+                        android:textColor="?attr/colorOnPrimaryContainer" />
+
+                    <TextView
+                        android:id="@+id/statusDetail"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="填写下方两部分配置后保存"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnPrimaryContainer" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/syncNow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="立即同步"
+                        app:icon="@android:drawable/ic_popup_sync" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ① 本机：极米记得网关 -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Mnemo.Card"
+                android:layout_marginTop="20dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView style="@style/Mnemo.Badge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="① 本机 · 只读" />
+                    <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="极米记得网关" />
+                    <TextView style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="在手机本机读取数据，通行证不会离开手机" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/pastePrompt"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="粘贴安装提示词"
+                        app:icon="@android:drawable/ic_menu_edit" />
+
+                    <TextView style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="在极米记得里复制整段安装提示词，点上方按钮自动填写；只提取文字，不会执行其中脚本" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tokenLayout"
+                        style="@style/Mnemo.Field"
+                        android:hint="通行证 token"
+                        app:endIconMode="password_toggle">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/token"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:importantForAutofill="no"
+                            android:inputType="textPassword"
+                            android:saveEnabled="false" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Mnemo.Field"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="8dp"
+                            android:hint="agent">
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/agent"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="text" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            style="@style/Mnemo.Field"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:hint="端口">
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/port"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/testGateway"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="测试连接" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 分隔：本机 / 云端 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <com.google.android.material.divider.MaterialDivider android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
+                <TextView style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginHorizontal="12dp" android:layout_marginTop="0dp" android:text="↓ 经代理推送到云端" />
+                <com.google.android.material.divider.MaterialDivider android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" />
+            </LinearLayout>
+
+            <!-- ② 云端：VPS 推送 -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Mnemo.Card"
+                android:layout_marginTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView style="@style/Mnemo.Badge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="② 云端 · HTTPS" />
+                    <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="VPS 推送" />
+                    <TextView style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="数据签名后推送到你自己的服务器，离线时在本机排队" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/pastePush"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="粘贴推送配置"
+                        app:icon="@android:drawable/ic_menu_upload" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/pushUrlLayout"
+                        style="@style/Mnemo.Field"
+                        android:hint="PUSH_URL"
+                        app:placeholderText="https://">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/pushUrl"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textUri" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Mnemo.Field"
+                        android:hint="PUSH_KEY"
+                        app:endIconMode="password_toggle">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/pushKey"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:importantForAutofill="no"
+                            android:inputType="textPassword"
+                            android:saveEnabled="false" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ③ 后台运行 -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Mnemo.Card"
+                android:layout_marginTop="20dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView style="@style/Mnemo.Badge" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="③ 后台" />
+                    <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="自动同步" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/autoSync"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="定时自动同步" />
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/interval"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/i15" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="15 分钟" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/i30" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="30 分钟" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/i60" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="60 分钟" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Mnemo.Field"
+                        android:hint="首次拉取天数"
+                        app:helperText="仅影响首次及会议/记忆等按天拉取的内容">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/days"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/autoStart"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="开机后自动恢复同步" />
+                    <TextView style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="关闭后，手机重启后不会在后台同步，直到你再次打开本应用" />
+
+                    <com.google.android.material.divider.MaterialDivider android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="16dp" />
+
+                    <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="防止被系统清理" />
+                    <TextView android:id="@+id/keepAliveHint" style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/battery"
+                        style="@style/Widget.Material3.Button.TextButton.Icon"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="① 忽略电池优化"
+                        app:icon="@android:drawable/ic_lock_idle_charging" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/autostartSettings"
+                        style="@style/Widget.Material3.Button.TextButton.Icon"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="② 允许自启动"
+                        app:icon="@android:drawable/ic_menu_rotate" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/lockGuide"
+                        style="@style/Widget.Material3.Button.TextButton.Icon"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="③ 在最近任务中上锁"
+                        app:icon="@android:drawable/ic_lock_lock" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 日志 -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Mnemo.Card"
+                android:layout_marginTop="20dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="最近日志" />
+                    <TextView
+                        android:id="@+id/logs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:fontFamily="monospace"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textIsSelectable="true" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/save"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:text="保存"
+        app:icon="@android:drawable/ic_menu_save" />
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

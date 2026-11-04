@@ -1,218 +1,231 @@
 package dev.mnemo.push
 
-import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
-import android.text.InputType
-import android.text.method.PasswordTransformationMethod
-import android.view.View
-import android.view.WindowInsets
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.Switch
 import android.widget.TextView
-import android.widget.Toast
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.Observer
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
+import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : Activity() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private lateinit var token: EditText
-    private lateinit var agent: EditText
-    private lateinit var port: EditText
-    private lateinit var pushUrl: EditText
-    private lateinit var pushKey: EditText
-    private lateinit var days: EditText
-    private lateinit var autoSync: Switch
-    private lateinit var interval: Spinner
+class MainActivity : AppCompatActivity() {
+    private lateinit var token: TextInputEditText
+    private lateinit var agent: TextInputEditText
+    private lateinit var port: TextInputEditText
+    private lateinit var pushUrl: TextInputEditText
+    private lateinit var pushKey: TextInputEditText
+    private lateinit var days: TextInputEditText
+    private lateinit var autoSync: MaterialSwitch
+    private lateinit var autoStart: MaterialSwitch
+    private lateinit var interval: MaterialButtonToggleGroup
     private lateinit var logs: TextView
-    private lateinit var work: LiveData<List<WorkInfo>>
-    private val observer = Observer<List<WorkInfo>> { refreshLogs() }
-    private val intervals = listOf(15, 30, 60)
+    private lateinit var statusTitle: TextView
+    private lateinit var statusDetail: TextView
+    private lateinit var battery: MaterialButton
+    private val intervalIds = mapOf(15 to R.id.i15, 30 to R.id.i30, 60 to R.id.i60)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(24))
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        setContentView(R.layout.activity_main)
+
+        token = findViewById(R.id.token); agent = findViewById(R.id.agent); port = findViewById(R.id.port)
+        pushUrl = findViewById(R.id.pushUrl); pushKey = findViewById(R.id.pushKey); days = findViewById(R.id.days)
+        autoSync = findViewById(R.id.autoSync); autoStart = findViewById(R.id.autoStart)
+        interval = findViewById(R.id.interval); logs = findViewById(R.id.logs)
+        statusTitle = findViewById(R.id.statusTitle); statusDetail = findViewById(R.id.statusDetail)
+        battery = findViewById(R.id.battery)
+
+        val save = findViewById<ExtendedFloatingActionButton>(R.id.save)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.scroll)) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+            v.updatePadding(bottom = bars.bottom + dp(96))
+            (save.layoutParams as android.view.ViewGroup.MarginLayoutParams).bottomMargin = bars.bottom + dp(16)
+            save.requestLayout()
+            insets
         }
-        val scroll = ScrollView(this).apply { addView(content) }
-        setContentView(scroll)
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            scroll.setOnApplyWindowInsetsListener { view, insets ->
-                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-                insets
-            }
+
+        findViewById<TextView>(R.id.keepAliveHint).text =
+            "国产系统会清理后台应用，自动同步需要完成以下三步（${Build.MANUFACTURER}）"
+
+        findViewById<MaterialButton>(R.id.pastePrompt).setOnClickListener { pasteInto(gateway = true) }
+        findViewById<MaterialButton>(R.id.pastePush).setOnClickListener { pasteInto(gateway = false) }
+        findViewById<MaterialButton>(R.id.testGateway).setOnClickListener { testGateway(it as MaterialButton) }
+        findViewById<MaterialButton>(R.id.syncNow).setOnClickListener {
+            runCatching { Scheduler.runNow(this) }
+                .onSuccess { statusDetail.text = "同步中…"; snack("已开始同步（使用已保存的配置）") }
+                .onFailure { snack("无法开始同步") }
         }
-        fun label(text: String) { content.addView(TextView(this).apply { this.text = text; textSize = 18f }) }
-        fun input(title: String, password: Boolean = false, numeric: Boolean = false): EditText {
-            label(title)
-            return EditText(this).apply {
-                isSingleLine = true
-                inputType = when {
-                    password -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                    numeric -> InputType.TYPE_CLASS_NUMBER
-                    else -> InputType.TYPE_CLASS_TEXT
-                }
-                if (password) {
-                    transformationMethod = PasswordTransformationMethod.getInstance()
-                    importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
-                    isSaveEnabled = false
-                }
-                content.addView(this)
-            }
+        battery.setOnClickListener { requestBattery() }
+        findViewById<MaterialButton>(R.id.autostartSettings).setOnClickListener { showAutostartGuide() }
+        findViewById<MaterialButton>(R.id.lockGuide).setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("在最近任务中上锁")
+                .setMessage(Oem.lockSteps() + "\n\n上锁后，一键清理后台时不会关闭 Mnemo Push。")
+                .setPositiveButton("知道了", null)
+                .show()
         }
-        fun button(text: String, action: (Button) -> Unit) {
-            content.addView(Button(this).apply { this.text = text; setOnClickListener { action(this) } })
+        autoSync.setOnCheckedChangeListener { _, on -> interval.isEnabled = on; for (i in 0 until interval.childCount) interval.getChildAt(i).isEnabled = on }
+        save.setOnClickListener { save(save) }
+
+        WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("mnemo-sync-now").observe(this) { infos ->
+            val state = infos.firstOrNull()?.state
+            if (state == WorkInfo.State.RUNNING) statusDetail.text = "同步中…"
+            refresh()
         }
-        button("粘贴安装提示词") { importFromClipboard() }
-        content.addView(TextView(this).apply {
-            text = "复制极米记得给出的整段安装提示词（或 VPS 输出的 PUSH_URL / PUSH_KEY）后点上面按钮，自动填写。"
-            textSize = 13f
-        })
-        label("【网关】")
-        token = input("通行证 token", password = true)
-        button("显示") { button ->
-            val reveal = token.transformationMethod != null
-            token.transformationMethod = if (reveal) null else PasswordTransformationMethod.getInstance()
-            token.setSelection(token.text.length)
-            button.text = if (reveal) "隐藏" else "显示"
-            refreshLogs()
-        }
-        agent = input("agent")
-        port = input("网关端口", numeric = true)
-        button("测试连接") { button ->
-            val config = currentConfig()
-            button.isEnabled = false
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) { Syncer(config, filesDir).ping() }
-                    toast("连接成功")
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    toast(RecentLog.safe("连接失败：${e.message ?: e.javaClass.simpleName}", config))
-                } finally {
-                    button.isEnabled = true
-                    refreshLogs()
-                }
-            }
-        }
-        label("【推送】")
-        pushUrl = input("PUSH_URL（https://）")
-        pushUrl.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-        pushKey = input("PUSH_KEY", password = true)
-        label("【自动同步】")
-        autoSync = Switch(this).apply { text = "开启自动同步"; content.addView(this) }
-        label("同步间隔")
-        interval = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
-                intervals.map { "$it 分钟" })
-            content.addView(this)
-        }
-        days = input("拉取天数", numeric = true)
-        button("请求忽略电池优化") {
-            try {
-                val power = getSystemService(PowerManager::class.java)
-                if (power.isIgnoringBatteryOptimizations(packageName)) toast("已开启忽略电池优化")
-                else startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    Uri.parse("package:$packageName")))
-            } catch (_: Exception) { toast("无法打开电池优化设置") }
-            refreshLogs()
-        }
-        button("保存") { button ->
-            val config = currentConfig()
-            if (!config.pushUrl.startsWith("https://")) {
-                toast("PUSH_URL 必须以 https:// 开头")
-                refreshLogs()
-            } else if (config.days <= 0) {
-                toast("拉取天数请输入正整数")
-                refreshLogs()
-            } else {
-                button.isEnabled = false
-                scope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            SecureStore.save(applicationContext, config)
-                            Scheduler.apply(applicationContext, config)
-                        }
-                        toast("已保存并应用同步设置")
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) { toast("保存或应用设置失败，请重试") }
-                    finally { button.isEnabled = true; refreshLogs() }
-                }
-            }
-        }
-        button("立即同步") {
-            try { Scheduler.runNow(this); toast("已加入同步队列，使用已保存配置") }
-            catch (_: Exception) { toast("无法加入同步队列") }
-            refreshLogs()
-        }
-        label("最近日志")
-        logs = TextView(this).apply { setTextIsSelectable(true); textSize = 14f; content.addView(this) }
-        work = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("mnemo-sync-now")
-        scope.launch {
-            fill(withContext(Dispatchers.IO) { SecureStore.load(applicationContext) })
-        }
+
+        BootGuard.markOpened(this)   // 用户打开过应用：关闭自启动时也恢复同步
         fill(Config())
+        lifecycleScope.launch { fill(withContext(Dispatchers.IO) { SecureStore.load(applicationContext) }) }
     }
 
-    private fun fill(config: Config) {
-        token.setText(config.token)
-        agent.setText(config.agent)
-        port.setText(config.gatewayPort.toString())
-        pushUrl.setText(config.pushUrl)
-        pushKey.setText(config.pushKey)
-        days.setText(config.days.toString())
-        autoSync.isChecked = config.autoSync
-        interval.setSelection(intervals.indexOf(config.intervalMinutes).coerceAtLeast(0))
+    override fun onResume() { super.onResume(); refresh() }
+
+    private fun fill(c: Config) {
+        token.setText(c.token); agent.setText(c.agent); port.setText(c.gatewayPort.toString())
+        pushUrl.setText(c.pushUrl); pushKey.setText(c.pushKey); days.setText(c.days.toString())
+        autoSync.isChecked = c.autoSync; autoStart.isChecked = c.autoStart
+        interval.check(intervalIds[c.intervalMinutes] ?: R.id.i15)
+        interval.isEnabled = c.autoSync
+        for (i in 0 until interval.childCount) interval.getChildAt(i).isEnabled = c.autoSync
     }
 
-    private fun importFromClipboard() {
+    private fun currentConfig() = Config(
+        token = token.text.toString().trim(),
+        agent = agent.text.toString().trim().ifBlank { "claude" },
+        pushUrl = pushUrl.text.toString().trim(),
+        pushKey = pushKey.text.toString().trim(),
+        autoSync = autoSync.isChecked,
+        intervalMinutes = intervalIds.entries.firstOrNull { it.value == interval.checkedButtonId }?.key ?: 15,
+        days = days.text.toString().toIntOrNull()?.coerceIn(1, 30) ?: 2,
+        gatewayPort = port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 } ?: 8723,
+        autoStart = autoStart.isChecked,
+    )
+
+    /** 两个粘贴按钮各管各的：本机只取通行证/agent/端口，云端只取 PUSH_URL/PUSH_KEY。 */
+    private fun pasteInto(gateway: Boolean) {
         val clipboard = getSystemService(ClipboardManager::class.java)
         val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
-        val parsed = PromptParser.parse(text)
-        if (parsed.isEmpty) { toast("剪贴板里没有识别到通行证或推送配置"); return }
-        fill(parsed.applyTo(currentConfig()))
-        // 剪贴板里有通行证，导入后立即清空，避免被其他 App 读取
-        if (parsed.token != null || parsed.pushKey != null) {
-            if (android.os.Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
+        val all = PromptParser.parse(text)
+        val parsed = if (gateway) all.gatewayOnly() else all.pushOnly()
+        if (parsed.isEmpty) {
+            snack(if (gateway) "剪贴板里没有找到极米记得通行证" else "剪贴板里没有找到 PUSH_URL / PUSH_KEY")
+            return
         }
-        toast("已填入：${parsed.summary()}。确认无误后点「保存」")
+        fill(parsed.applyTo(currentConfig()))
+        if ((parsed.token != null || parsed.pushKey != null) && Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
+        snack("已填入：${parsed.summary()}，确认后点「保存」")
     }
 
-    private fun currentConfig() = Config(token.text.toString().trim(),
-        agent.text.toString().trim().ifBlank { "claude" }, pushUrl.text.toString().trim(),
-        pushKey.text.toString().trim(), autoSync.isChecked, intervals[interval.selectedItemPosition],
-        days.text.toString().toIntOrNull() ?: 0,
-        port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 } ?: 8723)
-
-    override fun onStart() { super.onStart(); work.observeForever(observer) }
-    override fun onStop() { work.removeObserver(observer); super.onStop() }
-    override fun onResume() { super.onResume(); refreshLogs() }
-    override fun onDestroy() { work.removeObserver(observer); scope.cancel(); super.onDestroy() }
-    private fun refreshLogs() {
-        if (::logs.isInitialized) logs.text = RecentLog.read(this).ifBlank { "暂无同步日志" }
+    private fun testGateway(button: MaterialButton) {
+        val config = currentConfig()
+        button.isEnabled = false
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { Syncer(config, filesDir).ping() }
+                findViewById<TextInputLayout>(R.id.tokenLayout).error = null
+                snack("✓ 已连接极米记得网关")
+            } catch (e: CancellationException) { throw e
+            } catch (e: Exception) {
+                findViewById<TextInputLayout>(R.id.tokenLayout).error =
+                    RecentLog.safe(e.message ?: e.javaClass.simpleName, config).take(120)
+            } finally { button.isEnabled = true }
+        }
     }
-    private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private fun save(button: ExtendedFloatingActionButton) {
+        val config = currentConfig()
+        val urlLayout = findViewById<TextInputLayout>(R.id.pushUrlLayout)
+        if (config.pushUrl.isNotEmpty() && !config.pushUrl.startsWith("https://")) {
+            urlLayout.error = "必须以 https:// 开头"; return
+        }
+        urlLayout.error = null
+        button.isEnabled = false
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    SecureStore.save(applicationContext, config)
+                    BootGuard.setReceiverEnabled(applicationContext, config.autoStart)
+                    BootGuard.markOpened(applicationContext)
+                    Scheduler.apply(applicationContext, config)
+                }
+                snack(if (config.autoSync) "已保存，每 ${config.intervalMinutes} 分钟自动同步" else "已保存")
+                maybeFirstTimeGuide(config)
+            } catch (e: CancellationException) { throw e
+            } catch (_: Exception) { snack("保存失败，请重试")
+            } finally { button.isEnabled = true; refresh() }
+        }
+    }
+
+    /** 首次开启自动同步时，主动提醒完成保活设置。 */
+    private fun maybeFirstTimeGuide(config: Config) {
+        val prefs = getSharedPreferences("mnemo_ui", MODE_PRIVATE)
+        if (!config.autoSync || prefs.getBoolean("guided", false)) return
+        prefs.edit().putBoolean("guided", true).apply()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("让自动同步稳定运行")
+            .setMessage("国产系统默认会清理后台应用，请依次完成：\n\n① 忽略电池优化\n② 允许自启动\n③ 在最近任务中锁定本应用\n\n入口都在「后台」卡片底部。")
+            .setPositiveButton("现在设置") { _, _ -> requestBattery() }
+            .setNegativeButton("稍后", null)
+            .show()
+    }
+
+    private fun requestBattery() {
+        val power = getSystemService(PowerManager::class.java)
+        if (power.isIgnoringBatteryOptimizations(packageName)) { snack("已忽略电池优化 ✓"); return }
+        runCatching {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+        }.onFailure { snack("无法打开电池优化设置") }
+    }
+
+    private fun showAutostartGuide() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("允许自启动")
+            .setMessage(Oem.autostartSteps() + "\n\n点「前往设置」将尝试直接打开系统的自启动管理页面。")
+            .setPositiveButton("前往设置") { _, _ ->
+                val hit = runCatching { Oem.openAutostart(this) }.getOrDefault(false)
+                if (!hit) snack("未找到自启动页面，已打开应用详情，请按说明手动设置")
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun refresh() {
+        val text = RecentLog.read(this)
+        logs.text = text.lines().filter { it.isNotBlank() }.reversed().take(20).joinToString("\n").ifBlank { "暂无同步日志" }
+        val last = text.lines().lastOrNull { it.isNotBlank() }
+        if (last != null) {
+            val ok = "同步成功" in last
+            statusTitle.text = if (ok) "同步正常" else if ("失败" in last || "异常" in last) "同步出错" else "最近活动"
+            statusDetail.text = last
+        }
+        val ignoring = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        battery.text = if (ignoring) "① 已忽略电池优化 ✓" else "① 忽略电池优化"
+    }
+
+    private fun snack(message: String) =
+        Snackbar.make(findViewById(R.id.root), message, Snackbar.LENGTH_LONG).setAnchorView(R.id.save).show()
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

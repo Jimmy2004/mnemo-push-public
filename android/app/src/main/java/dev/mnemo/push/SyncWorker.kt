@@ -54,6 +54,10 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             var config = Config()
             try {
                 config = SecureStore.load(applicationContext)
+                if (!config.autoStart && BootGuard.rebootedSinceOpened(applicationContext)) {
+                    RecentLog.append(applicationContext, "手机已重启且未开启自启动，跳过；打开应用后恢复", config)
+                    return@withLock Result.success()
+                }
                 val result = Syncer(config, applicationContext.filesDir) {
                     RecentLog.append(applicationContext, it, config)
                 }.run()
