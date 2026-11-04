@@ -1,0 +1,15 @@
+# 机密与数据：永不提交
+.env
+*.env
+!*.env.example
+*.pem
+*.key
+mnemo-queue/
+*.db
+*.db-wal
+*.db-shm
+*.ndjson
+*.log
+.mnemo-push.state.json
+__pycache__/
+.DS_Store
