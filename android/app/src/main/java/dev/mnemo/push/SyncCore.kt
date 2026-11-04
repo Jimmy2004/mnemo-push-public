@@ -20,6 +20,7 @@ data class Config(
     val autoSync: Boolean = false,
     val intervalMinutes: Int = 15,
     val days: Int = 2,
+    val gatewayPort: Int = 8723,
 ) {
     val hasGateway get() = token.indexOf('.') in 1 until token.length - 1
     val hasPush get() = pushUrl.startsWith("https://") && pushKey.isNotBlank()
@@ -28,7 +29,7 @@ data class Config(
 class SyncException(message: String) : Exception(message)
 
 /** 本机 mnemosyne gateway 客户端，签名方式与官方 bridge v10 一致，并校验响应签名。 */
-class Gateway(config: Config, private val base: String = "http://127.0.0.1:8723") {
+class Gateway(config: Config, private val base: String = "http://127.0.0.1:${config.gatewayPort}") {
     private val tokenId: String
     private val secret: ByteArray
     private val agent = config.agent.trim().lowercase()

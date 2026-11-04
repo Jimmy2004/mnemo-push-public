@@ -1,6 +1,7 @@
 package dev.mnemo.push
 
 import android.app.Activity
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -35,6 +36,7 @@ class MainActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var token: EditText
     private lateinit var agent: EditText
+    private lateinit var port: EditText
     private lateinit var pushUrl: EditText
     private lateinit var pushKey: EditText
     private lateinit var days: EditText
@@ -81,6 +83,11 @@ class MainActivity : Activity() {
         fun button(text: String, action: (Button) -> Unit) {
             content.addView(Button(this).apply { this.text = text; setOnClickListener { action(this) } })
         }
+        button("粘贴安装提示词") { importFromClipboard() }
+        content.addView(TextView(this).apply {
+            text = "复制极米记得给出的整段安装提示词（或 VPS 输出的 PUSH_URL / PUSH_KEY）后点上面按钮，自动填写。"
+            textSize = 13f
+        })
         label("【网关】")
         token = input("通行证 token", password = true)
         button("显示") { button ->
@@ -91,6 +98,7 @@ class MainActivity : Activity() {
             refreshLogs()
         }
         agent = input("agent")
+        port = input("网关端口", numeric = true)
         button("测试连接") { button ->
             val config = currentConfig()
             button.isEnabled = false
@@ -163,23 +171,40 @@ class MainActivity : Activity() {
         logs = TextView(this).apply { setTextIsSelectable(true); textSize = 14f; content.addView(this) }
         work = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("mnemo-sync-now")
         scope.launch {
-            val config = withContext(Dispatchers.IO) { SecureStore.load(applicationContext) }
-            token.setText(config.token)
-            agent.setText(config.agent)
-            pushUrl.setText(config.pushUrl)
-            pushKey.setText(config.pushKey)
-            days.setText(config.days.toString())
-            autoSync.isChecked = config.autoSync
-            interval.setSelection(intervals.indexOf(config.intervalMinutes).coerceAtLeast(0))
+            fill(withContext(Dispatchers.IO) { SecureStore.load(applicationContext) })
         }
-        agent.setText("claude")
-        days.setText("2")
+        fill(Config())
+    }
+
+    private fun fill(config: Config) {
+        token.setText(config.token)
+        agent.setText(config.agent)
+        port.setText(config.gatewayPort.toString())
+        pushUrl.setText(config.pushUrl)
+        pushKey.setText(config.pushKey)
+        days.setText(config.days.toString())
+        autoSync.isChecked = config.autoSync
+        interval.setSelection(intervals.indexOf(config.intervalMinutes).coerceAtLeast(0))
+    }
+
+    private fun importFromClipboard() {
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+        val parsed = PromptParser.parse(text)
+        if (parsed.isEmpty) { toast("剪贴板里没有识别到通行证或推送配置"); return }
+        fill(parsed.applyTo(currentConfig()))
+        // 剪贴板里有通行证，导入后立即清空，避免被其他 App 读取
+        if (parsed.token != null || parsed.pushKey != null) {
+            if (android.os.Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip()
+        }
+        toast("已填入：${parsed.summary()}。确认无误后点「保存」")
     }
 
     private fun currentConfig() = Config(token.text.toString().trim(),
         agent.text.toString().trim().ifBlank { "claude" }, pushUrl.text.toString().trim(),
         pushKey.text.toString().trim(), autoSync.isChecked, intervals[interval.selectedItemPosition],
-        days.text.toString().toIntOrNull() ?: 0)
+        days.text.toString().toIntOrNull() ?: 0,
+        port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 } ?: 8723)
 
     override fun onStart() { super.onStart(); work.observeForever(observer) }
     override fun onStop() { work.removeObserver(observer); super.onStop() }

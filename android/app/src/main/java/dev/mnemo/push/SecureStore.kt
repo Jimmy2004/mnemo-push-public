@@ -44,7 +44,8 @@ object SecureStore {
     fun load(ctx: Context): Config = prefs(ctx).let {
         Config(decrypt(it.getString("token", null)), it.getString("agent", "claude") ?: "claude",
             it.getString("pushUrl", "") ?: "", decrypt(it.getString("pushKey", null)),
-            it.getBoolean("autoSync", false), it.getInt("intervalMinutes", 15), it.getInt("days", 2))
+            it.getBoolean("autoSync", false), it.getInt("intervalMinutes", 15), it.getInt("days", 2),
+            it.getInt("gatewayPort", 8723))
     }
 
     fun save(ctx: Context, config: Config) {
@@ -54,6 +55,6 @@ object SecureStore {
         check(prefs(ctx).edit().putString("token", token).putString("pushKey", pushKey)
             .putString("agent", config.agent).putString("pushUrl", config.pushUrl)
             .putBoolean("autoSync", config.autoSync).putInt("intervalMinutes", config.intervalMinutes)
-            .putInt("days", config.days).commit()) { "无法保存配置" }
+            .putInt("days", config.days).putInt("gatewayPort", config.gatewayPort).commit()) { "无法保存配置" }
     }
 }
