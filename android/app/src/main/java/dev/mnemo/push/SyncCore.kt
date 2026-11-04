@@ -22,6 +22,10 @@ data class Config(
     val days: Int = 2,
     val gatewayPort: Int = 8723,
     val autoStart: Boolean = true,
+    /** 设备标识：为空表示不标（与旧版数据同一组）；多台设备推到同一 VPS 时用来区分。 */
+    val device: String = "",
+    /** 界面上以小时显示间隔（实际仍按分钟存储与调度）。 */
+    val intervalInHours: Boolean = false,
 ) {
     val hasGateway get() = token.indexOf('.') in 1 until token.length - 1
     val hasPush get() = pushUrl.startsWith("https://") && pushKey.isNotBlank()
@@ -90,6 +94,13 @@ class Syncer(private val config: Config, private val dir: File, private val log:
 
     data class Result(val pulled: Int, val pushed: Int, val pending: Int, val sinceId: Long)
 
+    /** days = 0 表示全部：首次拉取全部历史，之后会议/记忆等按最近 2 天窗口增量。 */
+    private fun windowDays(firstRun: Boolean) = when {
+        config.days > 0 -> config.days
+        firstRun -> ALL_DAYS
+        else -> 2
+    }
+
     fun run(): Result {
         // 拉取失败（如 gateway 未运行）时，仍先把已排队的数据推出去，再抛出原错误
         val pullResult = if (config.hasGateway) runCatching { pull() } else kotlin.Result.success(0)
@@ -102,6 +113,17 @@ class Syncer(private val config: Config, private val dir: File, private val log:
     /** 只测试网关连通和签名。 */
     fun ping() { Gateway(config).call("ping", timeoutMs = 5_000) }
 
+    /** 测试 VPS 推送地址与密钥，返回往返延迟（毫秒）。 */
+    fun pingPush(): Long {
+        if (!config.hasPush) throw SyncException("请填写 https:// 开头的 PUSH_URL 和 PUSH_KEY")
+        val body = "ping:${randomHex(16)}".toByteArray()
+        val start = System.nanoTime()
+        val code = post(body, 10_000)
+        val ms = (System.nanoTime() - start) / 1_000_000
+        if (code != 200) throw SyncException("HTTP $code${hint(code)}")
+        return ms
+    }
+
     private fun loadSinceId(): Long =
         runCatching { JSONObject(stateFile.readText()).optLong("transcript_since_id", 0) }.getOrDefault(0)
 
@@ -113,9 +135,10 @@ class Syncer(private val config: Config, private val dir: File, private val log:
         gw.call("ping", timeoutMs = 5_000)
 
         var since = loadSinceId()
+        val days = windowDays(firstRun = since == 0L)
         while (true) {
             val args = JSONObject().put("fullText", true).put("limit", 200).put("maxChars", 200_000)
-            if (since > 0) args.put("sinceId", since) else args.put("days", config.days)
+            if (since > 0) args.put("sinceId", since) else args.put("days", days)
             val page = results(gw.call("get_transcripts", args, 180_000))
             if (page.isEmpty()) break
             items += page
@@ -127,7 +150,7 @@ class Syncer(private val config: Config, private val dir: File, private val log:
         for (src in listOf("meetings", "memories", "timeline_cards")) {
             var offset = 0
             while (true) {
-                val args = JSONObject().put("sources", JSONArray().put(src)).put("days", config.days)
+                val args = JSONObject().put("sources", JSONArray().put(src)).put("days", days)
                     .put("limit", 100).put("offset", offset).put("maxChars", 100_000)
                 val page = results(gw.call("search_evidence", args, 90_000))
                 items += page
@@ -135,8 +158,10 @@ class Syncer(private val config: Config, private val dir: File, private val log:
                 offset += 100
             }
         }
-        items += results(gw.call("get_open_loops", JSONObject().put("days", config.days).put("limit", 200), 15_000))
+        items += results(gw.call("get_open_loops", JSONObject().put("days", days).put("limit", 200), 15_000))
 
+        val device = config.device.trim()
+        if (device.isNotEmpty()) items.forEach { it.put("device", device) }
         if (items.isNotEmpty()) {
             // 毫秒时间戳（定长，保证排序）+ UUID，永不覆盖；先写 .tmp 再原子改名，成功后才推进游标
             val name = "%013d-%s".format(System.currentTimeMillis(), java.util.UUID.randomUUID())
@@ -152,31 +177,36 @@ class Syncer(private val config: Config, private val dir: File, private val log:
     private fun push(): Int {
         var n = 0
         for (f in queue.listFiles { x -> x.name.endsWith(".ndjson") }.orEmpty().sortedBy { it.name }) {
-            val body = f.readBytes()
-            val ts = (System.currentTimeMillis() / 1000).toString()
-            val sig = hmacHex(config.pushKey.trim().toByteArray(), ts + "\n" + sha256Hex(body))
-            val conn = URL(config.pushUrl.trim()).openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "POST"
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 60_000
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/x-ndjson")
-                conn.setRequestProperty("User-Agent", "mnemo-push/1.0")
-                conn.setRequestProperty("X-Push-Ts", ts)
-                conn.setRequestProperty("X-Push-Sig", sig)
-                conn.outputStream.use { it.write(body) }
-                val code = conn.responseCode
-                if (code != 200) throw SyncException("推送 ${f.name} 失败：HTTP $code${hint(code)}")
-            } finally {
-                conn.disconnect()
-            }
+            val code = post(f.readBytes(), 60_000)
+            if (code != 200) throw SyncException("推送 ${f.name} 失败：HTTP $code${hint(code)}")
             f.delete()
             n++
             log("已推送 ${f.name}")
         }
         return n
     }
+
+    private fun post(body: ByteArray, readTimeout: Int): Int {
+        val ts = (System.currentTimeMillis() / 1000).toString()
+        val sig = hmacHex(config.pushKey.trim().toByteArray(), ts + "\n" + sha256Hex(body))
+        val conn = URL(config.pushUrl.trim()).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 15_000
+            conn.readTimeout = readTimeout
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/x-ndjson")
+            conn.setRequestProperty("User-Agent", "mnemo-push/1.0")
+            conn.setRequestProperty("X-Push-Ts", ts)
+            conn.setRequestProperty("X-Push-Sig", sig)
+            conn.outputStream.use { it.write(body) }
+            return conn.responseCode
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    companion object { const val ALL_DAYS = 3650 }
 
     private fun hint(code: Int) = when (code) {
         403 -> "（可能被 Cloudflare 拦截）"

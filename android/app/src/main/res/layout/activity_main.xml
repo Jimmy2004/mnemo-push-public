@@ -45,6 +45,7 @@
 
             <!-- 状态 -->
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/statusCard"
                 style="@style/Mnemo.Card"
                 app:cardBackgroundColor="?attr/colorPrimaryContainer">
 
@@ -219,6 +220,28 @@
                             android:inputType="textPassword"
                             android:saveEnabled="false" />
                     </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/deviceLayout"
+                        style="@style/Mnemo.Field"
+                        android:hint="设备标识（可选）"
+                        app:helperText="留空则不标识。多台设备推到同一台 VPS 时填写，如 phone、pad">
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/device"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:digits="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+                            android:inputType="text"
+                            android:maxLength="32" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/testPush"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="测试连接" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -242,22 +265,46 @@
                         android:layout_marginTop="8dp"
                         android:text="定时自动同步" />
 
-                    <com.google.android.material.button.MaterialButtonToggleGroup
-                        android:id="@+id/interval"
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        app:selectionRequired="true"
-                        app:singleSelection="true">
-                        <com.google.android.material.button.MaterialButton android:id="@+id/i15" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="15 分钟" />
-                        <com.google.android.material.button.MaterialButton android:id="@+id/i30" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="30 分钟" />
-                        <com.google.android.material.button.MaterialButton android:id="@+id/i60" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="60 分钟" />
-                    </com.google.android.material.button.MaterialButtonToggleGroup>
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/intervalLayout"
+                            style="@style/Mnemo.Field"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="8dp"
+                            android:hint="同步间隔"
+                            app:helperText="15 分钟 – 24 小时">
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/interval"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:maxLength="4" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/unitLayout"
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                            android:layout_width="120dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:hint="单位">
+                            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                                android:id="@+id/intervalUnit"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="none" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
                         style="@style/Mnemo.Field"
                         android:hint="首次拉取天数"
-                        app:helperText="仅影响首次及会议/记忆等按天拉取的内容">
+                        app:helperText="填 0 拉取全部历史；之后会议/记忆等按天窗口增量拉取">
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/days"
                             android:layout_width="match_parent"
@@ -312,15 +359,30 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
                     <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="最近日志" />
-                    <TextView
-                        android:id="@+id/logs"
+                    <com.google.android.material.card.MaterialCardView
+                        style="@style/Widget.Material3.CardView.Filled"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:fontFamily="monospace"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textIsSelectable="true" />
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerHighest">
+                        <androidx.core.widget.NestedScrollView
+                            android:id="@+id/logScroll"
+                            android:layout_width="match_parent"
+                            android:layout_height="240dp"
+                            android:fadeScrollbars="false"
+                            android:nestedScrollingEnabled="true"
+                            android:scrollbars="vertical">
+                            <TextView
+                                android:id="@+id/logs"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:padding="12dp"
+                                android:fontFamily="monospace"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textIsSelectable="true" />
+                        </androidx.core.widget.NestedScrollView>
+                    </com.google.android.material.card.MaterialCardView>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>

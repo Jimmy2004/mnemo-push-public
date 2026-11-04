@@ -26,7 +26,7 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
-同步内容：转录（按 `sinceId` 增量）、会议、记忆、时间线卡片、待办（按最近 N 天窗口，服务端按 `(sourceType, id)` 去重）。
+同步内容：转录（按 `sinceId` 增量）、会议、记忆、时间线卡片、待办（按最近 N 天窗口；首次拉取天数填 0 = 全部历史）。服务端按 `(device, sourceType, id)` 去重：换推送/只读密钥或通行证都不会产生重复；多台设备推到同一台 VPS 时，在 App 里填不同的「设备标识」即可互不覆盖（留空 = 不标识）。
 
 ## 目录结构
 
@@ -76,8 +76,8 @@ git clone https://github.com/<you>/mnemo-push && cd mnemo-push
 
 1. 安装 APK（`cd android && ./gradlew :app:assembleDebug`，产物 `app/build/outputs/apk/debug/app-debug.apk`）。
 2. **① 本机**：在极米记得里复制整段安装提示词 → 点「粘贴安装提示词」→「测试连接」。
-3. **② 云端**：复制 VPS 输出的 `PUSH_URL` / `PUSH_KEY` 两行 → 点「粘贴推送配置」。
-4. **③ 后台**：打开「定时自动同步」，选择间隔；按需打开「开机后自动恢复同步」；依次完成「忽略电池优化」「允许自启动」「在最近任务中上锁」。
+3. **② 云端**：复制 VPS 输出的 `PUSH_URL` / `PUSH_KEY` 两行 → 点「粘贴推送配置」→「测试连接」（显示延迟毫秒）。多台设备时填写「设备标识」。
+4. **③ 后台**：打开「定时自动同步」，输入间隔并选择分钟/小时（15 分钟 – 24 小时）；按需打开「开机后自动恢复同步」；依次完成「忽略电池优化」「允许自启动」「在最近任务中上锁」。
 5. 点「保存」，再点「立即同步」，在「最近日志」看到“同步成功”即可。
 
 ### 3. 电脑：mnemosyne-cloud MCP
@@ -100,6 +100,8 @@ sh mcp/install.sh --url 'https://<域名>/<随机路径>' --read-key '<64 位只
 | `get_transcripts` | 按时间窗口读原话，支持 `query`、`sinceId`、分页 |
 | `get_memory_item` | 按 `sourceType + id` 读单条 |
 | `get_open_loops` | 未完成待办 |
+
+所有工具都接受可选的 `device` 参数筛选设备（未标识的数据为空字符串），不传则查全部。
 
 自检：`sh mcp/install.sh --check`；卸载：`sh mcp/install.sh --uninstall`。
 

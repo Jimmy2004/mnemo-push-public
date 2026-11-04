@@ -46,6 +46,20 @@ internal object RecentLog {
 
     @Synchronized
     fun read(ctx: Context): String = prefs(ctx).getString("recent", "") ?: ""
+
+    /** 顶部状态卡用：上次同步时间、是否成功、拉取条数或错误信息。 */
+    data class Last(val atMs: Long, val ok: Boolean, val count: Int, val error: String)
+
+    fun setLast(ctx: Context, ok: Boolean, count: Int = 0, error: String = "", config: Config = Config()) {
+        prefs(ctx).edit().putLong("lastAt", System.currentTimeMillis()).putBoolean("lastOk", ok)
+            .putInt("lastCount", count).putString("lastError", safe(error, config)).apply()
+    }
+
+    fun last(ctx: Context): Last? = prefs(ctx).let {
+        if (!it.contains("lastAt")) null
+        else Last(it.getLong("lastAt", 0), it.getBoolean("lastOk", false), it.getInt("lastCount", 0),
+            it.getString("lastError", "") ?: "")
+    }
 }
 
 class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
@@ -63,11 +77,13 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 }.run()
                 RecentLog.append(applicationContext,
                     "同步成功：拉取 ${result.pulled}，推送 ${result.pushed}，待推送 ${result.pending}，sinceId=${result.sinceId}", config)
+                RecentLog.setLast(applicationContext, true, result.pulled)
                 Result.success()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SyncException) {
                 RecentLog.append(applicationContext, "同步失败：${e.message ?: "同步错误"}", config)
+                RecentLog.setLast(applicationContext, false, error = e.message ?: "同步错误", config = config)
                 Result.failure()
             } catch (e: Exception) {
                 // SyncCore also does file I/O: only recognizable network errors are retried.
@@ -79,6 +95,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 }
                 RecentLog.append(applicationContext,
                     "同步${if (network) "网络异常，将重试" else "失败"}：${e.message ?: e.javaClass.simpleName}", config)
+                RecentLog.setLast(applicationContext, false, error = e.message ?: e.javaClass.simpleName, config = config)
                 if (network) Result.retry() else Result.failure()
             }
         }
@@ -91,7 +108,7 @@ object Scheduler {
     fun apply(ctx: Context, config: Config) {
         val manager = WorkManager.getInstance(ctx)
         if (config.autoSync) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(config.intervalMinutes.coerceAtLeast(15).toLong(), TimeUnit.MINUTES)
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(config.intervalMinutes.coerceIn(15, 1440).toLong(), TimeUnit.MINUTES)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
             manager.enqueueUniquePeriodicWork("mnemo-sync", ExistingPeriodicWorkPolicy.UPDATE, request)
         } else manager.cancelUniqueWork("mnemo-sync")

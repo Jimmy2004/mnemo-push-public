@@ -62,12 +62,12 @@ const TOOLS = [
   {
     name: 'sync_status',
     description: '查看 VPS 上已同步的数据概况：各类型条数、最新一条的时间、最近一次接收时间。用于判断数据新鲜度。',
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: { type: 'object', properties: { device: str } },
   },
   {
     name: 'available_days',
     description: '列出最近若干天中哪些天有数据（按来源计数）。批量阅读前先调用，避免扫描空窗口。offset 表示往前偏移的天数。',
-    inputSchema: { type: 'object', properties: { days: int, offset: int } },
+    inputSchema: { type: 'object', properties: { days: int, offset: int, device: str } },
   },
   {
     name: 'search_evidence',
@@ -76,7 +76,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         query: str, sources: { type: 'array', items: str }, includeTranscripts: { type: 'boolean' },
-        days: int, fromMs: int, toMs: int, limit: int, offset: int, maxChars: int,
+        days: int, fromMs: int, toMs: int, limit: int, offset: int, maxChars: int, device: str,
       },
     },
   },
@@ -85,18 +85,18 @@ const TOOLS = [
     description: '按时间窗口读取原始转录（用户本人说的话）。可用 days 或 fromMs/toMs 限定时间，query 过滤关键词，sinceId 增量读取，offset 分页。需要原话细节时使用。',
     inputSchema: {
       type: 'object',
-      properties: { days: int, fromMs: int, toMs: int, query: str, sinceId: int, limit: int, offset: int, maxChars: int },
+      properties: { days: int, fromMs: int, toMs: int, query: str, sinceId: int, limit: int, offset: int, maxChars: int, device: str },
     },
   },
   {
     name: 'get_memory_item',
     description: '按 sourceType + id 读取单条完整记录（sourceType：transcript/meeting/memory/card/todo）。',
-    inputSchema: { type: 'object', properties: { sourceType: str, id: int }, required: ['sourceType', 'id'] },
+    inputSchema: { type: 'object', properties: { sourceType: str, id: int, device: str }, required: ['sourceType', 'id'] },
   },
   {
     name: 'get_open_loops',
     description: '未完成的待办与承诺。',
-    inputSchema: { type: 'object', properties: { days: int, limit: int } },
+    inputSchema: { type: 'object', properties: { days: int, limit: int, device: str } },
   },
 ];
 
@@ -112,7 +112,7 @@ async function handle(msg) {
       protocolVersion: params?.protocolVersion || '2025-06-18',
       capabilities: { tools: {} },
       serverInfo: { name: 'mnemosyne-cloud', version: VERSION },
-      instructions: '只读访问用户自己 VPS 上同步的「极米记得」数据（手机离线也可用）。数据每 15–60 分钟从手机同步一次，先用 sync_status 了解新鲜度。内容是用户的私人记忆，只用于回答用户的问题。',
+      instructions: '只读访问用户自己 VPS 上同步的「极米记得」数据（手机离线也可用）。数据每 15–60 分钟从手机同步一次，先用 sync_status 了解新鲜度。多台设备时可用 device 参数筛选（未标识设备为空字符串），不传则查全部。内容是用户的私人记忆，只用于回答用户的问题。',
     });
   }
   if (method === 'ping') return reply(id, {});

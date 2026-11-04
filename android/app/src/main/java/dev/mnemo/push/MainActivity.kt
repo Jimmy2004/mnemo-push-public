@@ -14,11 +14,14 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -39,12 +42,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var days: TextInputEditText
     private lateinit var autoSync: MaterialSwitch
     private lateinit var autoStart: MaterialSwitch
-    private lateinit var interval: MaterialButtonToggleGroup
+    private lateinit var interval: TextInputEditText
+    private lateinit var intervalUnit: MaterialAutoCompleteTextView
+    private lateinit var device: TextInputEditText
     private lateinit var logs: TextView
     private lateinit var statusTitle: TextView
     private lateinit var statusDetail: TextView
     private lateinit var battery: MaterialButton
-    private val intervalIds = mapOf(15 to R.id.i15, 30 to R.id.i30, 60 to R.id.i60)
+    private val units = arrayOf("分钟", "小时")
+    private var syncing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +63,10 @@ class MainActivity : AppCompatActivity() {
         interval = findViewById(R.id.interval); logs = findViewById(R.id.logs)
         statusTitle = findViewById(R.id.statusTitle); statusDetail = findViewById(R.id.statusDetail)
         battery = findViewById(R.id.battery)
+        intervalUnit = findViewById(R.id.intervalUnit); device = findViewById(R.id.device)
+        intervalUnit.setSimpleItems(units)
+        intervalUnit.setOnItemClickListener { _, _, _, _ -> validateInterval() }
+        interval.doAfterTextChanged { validateInterval() }
 
         val save = findViewById<ExtendedFloatingActionButton>(R.id.save)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { _, insets ->
@@ -78,6 +88,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.pastePrompt).setOnClickListener { pasteInto(gateway = true) }
         findViewById<MaterialButton>(R.id.pastePush).setOnClickListener { pasteInto(gateway = false) }
         findViewById<MaterialButton>(R.id.testGateway).setOnClickListener { testGateway(it as MaterialButton) }
+        findViewById<MaterialButton>(R.id.testPush).setOnClickListener { testPush(it as MaterialButton) }
         findViewById<MaterialButton>(R.id.syncNow).setOnClickListener {
             runCatching { Scheduler.runNow(this) }
                 .onSuccess { statusDetail.text = "同步中…"; snack("已开始同步（使用已保存的配置）") }
@@ -92,12 +103,13 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton("知道了", null)
                 .show()
         }
-        autoSync.setOnCheckedChangeListener { _, on -> interval.isEnabled = on; for (i in 0 until interval.childCount) interval.getChildAt(i).isEnabled = on }
+        autoSync.setOnCheckedChangeListener { _, on -> setIntervalEnabled(on) }
         save.setOnClickListener { save(save) }
 
         WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData("mnemo-sync-now").observe(this) { infos ->
             val state = infos.firstOrNull()?.state
-            if (state == WorkInfo.State.RUNNING) statusDetail.text = "同步中…"
+            syncing = state == WorkInfo.State.RUNNING || state == WorkInfo.State.ENQUEUED
+            if (syncing) statusDetail.text = "同步中…"
             refresh()
         }
 
@@ -120,9 +132,11 @@ class MainActivity : AppCompatActivity() {
         token.setText(c.token); agent.setText(c.agent); port.setText(c.gatewayPort.toString())
         pushUrl.setText(c.pushUrl); pushKey.setText(c.pushKey); days.setText(c.days.toString())
         autoSync.isChecked = c.autoSync; autoStart.isChecked = c.autoStart
-        interval.check(intervalIds[c.intervalMinutes] ?: R.id.i15)
-        interval.isEnabled = c.autoSync
-        for (i in 0 until interval.childCount) interval.getChildAt(i).isEnabled = c.autoSync
+        val hours = c.intervalInHours && c.intervalMinutes % 60 == 0
+        interval.setText((if (hours) c.intervalMinutes / 60 else c.intervalMinutes).toString())
+        intervalUnit.setText(units[if (hours) 1 else 0], false)
+        device.setText(c.device)
+        setIntervalEnabled(c.autoSync)
     }
 
     private fun currentConfig() = Config(
@@ -131,11 +145,40 @@ class MainActivity : AppCompatActivity() {
         pushUrl = pushUrl.text.toString().trim(),
         pushKey = pushKey.text.toString().trim(),
         autoSync = autoSync.isChecked,
-        intervalMinutes = intervalIds.entries.firstOrNull { it.value == interval.checkedButtonId }?.key ?: 15,
-        days = days.text.toString().toIntOrNull()?.coerceIn(1, 30) ?: 2,
+        intervalMinutes = intervalMinutes() ?: 15,
+        intervalInHours = inHours(),
+        days = days.text.toString().toIntOrNull()?.coerceIn(0, Syncer.ALL_DAYS) ?: 2,
+        device = device.text.toString().trim(),
         gatewayPort = port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 } ?: 8723,
         autoStart = autoStart.isChecked,
     )
+
+    private fun inHours() = intervalUnit.text.toString() == units[1]
+
+    /** 输入框中的间隔换算为分钟；非整数或为空时返回 null。 */
+    private fun intervalMinutes(): Int? {
+        val n = interval.text.toString().toIntOrNull() ?: return null
+        return if (inHours()) n.toLong().times(60).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else n
+    }
+
+    /** 返回错误文字；合法时为 null。上限 1440 分钟（24 小时），下限 15 分钟（系统定时任务最短间隔）。 */
+    private fun validateInterval(): String? {
+        val m = intervalMinutes()
+        val error = when {
+            m == null -> "请输入整数"
+            m > 1440 -> if (inHours()) "最多 24 小时" else "最多 1440 分钟（24 小时）"
+            m < 15 -> "最少 15 分钟（系统限制）"
+            else -> null
+        }
+        findViewById<TextInputLayout>(R.id.intervalLayout).error = error
+        return error
+    }
+
+    private fun setIntervalEnabled(on: Boolean) {
+        interval.isEnabled = on; intervalUnit.isEnabled = on
+        findViewById<TextInputLayout>(R.id.intervalLayout).isEnabled = on
+        findViewById<TextInputLayout>(R.id.unitLayout).isEnabled = on
+    }
 
     /** 两个粘贴按钮各管各的：本机只取通行证/agent/端口，云端只取 PUSH_URL/PUSH_KEY。 */
     private fun pasteInto(gateway: Boolean) {
@@ -176,7 +219,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun testPush(button: MaterialButton) {
+        val config = currentConfig()
+        val layout = findViewById<TextInputLayout>(R.id.pushUrlLayout)
+        button.isEnabled = false
+        button.text = "测试中…"
+        lifecycleScope.launch {
+            try {
+                val ms = withContext(Dispatchers.IO) { Syncer(config, filesDir).pingPush() }
+                layout.error = null
+                button.text = "✓ 已连接 · $ms ms"
+                snack("✓ VPS 推送可用，延迟 $ms ms")
+            } catch (e: CancellationException) { throw e
+            } catch (e: Exception) {
+                button.text = "测试连接"
+                layout.error = RecentLog.safe(e.message ?: e.javaClass.simpleName, config).take(120)
+            } finally { button.isEnabled = true }
+        }
+    }
+
     private fun save(button: ExtendedFloatingActionButton) {
+        if (autoSync.isChecked && validateInterval() != null) { snack("请先修正同步间隔"); return }
         val config = currentConfig()
         val urlLayout = findViewById<TextInputLayout>(R.id.pushUrlLayout)
         if (config.pushUrl.isNotEmpty() && !config.pushUrl.startsWith("https://")) {
@@ -192,7 +255,7 @@ class MainActivity : AppCompatActivity() {
                     BootGuard.markOpened(applicationContext)
                     Scheduler.apply(applicationContext, config)
                 }
-                snack(if (config.autoSync) "已保存，每 ${config.intervalMinutes} 分钟自动同步" else "已保存")
+                snack(if (config.autoSync) "已保存，每 ${intervalLabel(config)}自动同步" else "已保存")
                 maybeFirstTimeGuide(config)
             } catch (e: CancellationException) { throw e
             } catch (_: Exception) { snack("保存失败，请重试")
@@ -236,14 +299,28 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun intervalLabel(c: Config) =
+        if (c.intervalInHours && c.intervalMinutes % 60 == 0) "${c.intervalMinutes / 60} 小时" else "${c.intervalMinutes} 分钟"
+
     private fun refresh() {
         val text = RecentLog.read(this)
-        logs.text = text.lines().filter { it.isNotBlank() }.reversed().take(20).joinToString("\n").ifBlank { "暂无同步日志" }
-        val last = text.lines().lastOrNull { it.isNotBlank() }
-        if (last != null) {
-            val ok = "同步成功" in last
-            statusTitle.text = if (ok) "同步正常" else if ("失败" in last || "异常" in last) "同步出错" else "最近活动"
-            statusDetail.text = last
+        logs.text = text.lines().filter { it.isNotBlank() }.reversed().joinToString("\n").ifBlank { "暂无同步日志" }
+        val last = RecentLog.last(this)
+        val card = findViewById<MaterialCardView>(R.id.statusCard)
+        val (bg, fg) = if (last == null || last.ok)
+            com.google.android.material.R.attr.colorPrimaryContainer to com.google.android.material.R.attr.colorOnPrimaryContainer
+        else com.google.android.material.R.attr.colorErrorContainer to com.google.android.material.R.attr.colorOnErrorContainer
+        card.setCardBackgroundColor(MaterialColors.getColor(card, bg))
+        MaterialColors.getColor(card, fg).let { statusTitle.setTextColor(it); statusDetail.setTextColor(it) }
+        if (last != null && !syncing) {
+            val time = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.CHINA).format(java.util.Date(last.atMs))
+            if (last.ok) {
+                statusTitle.text = "同步正常"
+                statusDetail.text = "上次同步：$time，共 ${last.count} 条"
+            } else {
+                statusTitle.text = "同步失败"
+                statusDetail.text = "上次同步：$time\n${last.error.take(120)}"
+            }
         }
         val ignoring = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         battery.text = if (ignoring) "① 已忽略电池优化 ✓" else "① 忽略电池优化"

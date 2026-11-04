@@ -57,14 +57,16 @@ object SecureStore {
         Config(agent = p.getString("agent", "claude") ?: "claude", pushUrl = p.getString("pushUrl", "") ?: "",
             autoSync = p.getBoolean("autoSync", false), intervalMinutes = p.getInt("intervalMinutes", 15),
             days = p.getInt("days", 2), gatewayPort = p.getInt("gatewayPort", 8723),
-            autoStart = p.getBoolean("autoStart", true)) to e.message
+            autoStart = p.getBoolean("autoStart", true), device = p.getString("device", "") ?: "",
+            intervalInHours = p.getBoolean("intervalInHours", false)) to e.message
     }
 
     fun load(ctx: Context): Config = prefs(ctx).let {
         Config(decrypt(it.getString("token", null)), it.getString("agent", "claude") ?: "claude",
             it.getString("pushUrl", "") ?: "", decrypt(it.getString("pushKey", null)),
             it.getBoolean("autoSync", false), it.getInt("intervalMinutes", 15), it.getInt("days", 2),
-            it.getInt("gatewayPort", 8723), it.getBoolean("autoStart", true))
+            it.getInt("gatewayPort", 8723), it.getBoolean("autoStart", true), it.getString("device", "") ?: "",
+            it.getBoolean("intervalInHours", false))
     }
 
     fun save(ctx: Context, config: Config) {
@@ -75,6 +77,7 @@ object SecureStore {
             .putString("agent", config.agent).putString("pushUrl", config.pushUrl)
             .putBoolean("autoSync", config.autoSync).putInt("intervalMinutes", config.intervalMinutes)
             .putInt("days", config.days).putInt("gatewayPort", config.gatewayPort)
-            .putBoolean("autoStart", config.autoStart).commit()) { "无法保存配置" }
+            .putBoolean("autoStart", config.autoStart).putString("device", config.device)
+            .putBoolean("intervalInHours", config.intervalInHours).commit()) { "无法保存配置" }
     }
 }
