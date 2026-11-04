@@ -1,23 +1,50 @@
 #!/usr/bin/env python3
-"""VPS 接收端：接收手机 mnemo_push.py 推送的 NDJSON，校验签名后去重入库。
+"""mnemo-push VPS 服务：接收手机推送（写）+ 为 Mac 端 MCP 提供只读查询（读）。
 
-只监听 127.0.0.1，由 nginx 反代。签名：
+只监听 127.0.0.1，由 nginx 反代到同一个随机路径。写和读使用两把不同的密钥：
+
+写（手机 App / Termux 脚本，PUSH_KEY = /etc/mnemo-recv/key）
     X-Push-Ts:  Unix 秒
-    X-Push-Sig: hex(HMAC-SHA256(key, ts + "\n" + hex(sha256(body))))
-时间偏差 > 300s 拒绝；同一签名只接受一次（防重放）。
+    X-Push-Sig: hex(HMAC-SHA256(push_key, ts + "\n" + hex(sha256(body))))
+    body: NDJSON，每行一条记录，按 (sourceType, id) 去重入库
+
+读（Mac MCP，READ_KEY = /etc/mnemo-recv/read.key）
+    X-Read-Ts:  Unix 秒
+    X-Read-Sig: hex(HMAC-SHA256(read_key, "read\n" + ts + "\n" + hex(sha256(body))))
+    body: {"tool": "...", "args": {...}}
+    响应头 X-Read-Resp-Sig = hex(HMAC-SHA256(read_key, "resp\n" + 请求签名 + "\n" + hex(sha256(响应体))))
+
+两种请求都：时间偏差 > 300s 拒绝；同一签名只接受一次（防重放）；鉴权失败返回 404。
 """
-import hashlib, hmac, json, os, sqlite3, time
+import datetime, hashlib, hmac, json, os, sqlite3, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LISTEN = ("127.0.0.1", int(os.environ.get("MNEMO_PORT", "20953")))
-KEY = open(os.environ.get("MNEMO_KEY_FILE", "/etc/mnemo-recv/key"), "rb").read().strip()
+ETC = os.environ.get("MNEMO_ETC", "/etc/mnemo-recv")
 DB = os.environ.get("MNEMO_DB", "/var/lib/mnemo-recv/mnemo.db")
 MAX_BODY = 64 * 1024 * 1024
 SKEW = 300
+TZ = datetime.timezone(datetime.timedelta(hours=int(os.environ.get("MNEMO_TZ_HOURS", "8"))))
+
+# 来源名：MCP 参数里的复数名 -> 库里的 sourceType
+SOURCES = {"transcripts": "transcript", "meetings": "meeting", "memories": "memory",
+           "timeline_cards": "card", "cards": "card", "todos": "todo", "open_loops": "todo"}
+
+
+def read_key(name):
+    try:
+        return open(os.path.join(ETC, name), "rb").read().strip()
+    except FileNotFoundError:
+        return None
+
+
+PUSH_KEY = read_key("key")
+READ_KEY = read_key("read.key")
 
 
 def db():
     c = sqlite3.connect(DB, timeout=30)
+    c.row_factory = sqlite3.Row
     c.execute("pragma journal_mode=wal")
     c.executescript("""
     create table if not exists items(
@@ -31,6 +58,143 @@ def db():
     return c
 
 
+def sign(key, *parts):
+    return hmac.new(key, "\n".join(parts).encode(), hashlib.sha256).hexdigest()
+
+
+def sha(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+# ---------------- 只读查询 ----------------
+
+def _int(a, k, d, lo=None, hi=None):
+    try:
+        v = int(a.get(k, d))
+    except (TypeError, ValueError):
+        v = d
+    if lo is not None:
+        v = max(lo, v)
+    if hi is not None:
+        v = min(hi, v)
+    return v
+
+
+def _window(a):
+    """fromMs/toMs 优先，否则 days（含今天）+ dayOffset（往前偏移天数）。返回 (from_ms, to_ms) 或 (None, None)。"""
+    if a.get("fromMs") is not None or a.get("toMs") is not None:
+        return _int(a, "fromMs", 0), _int(a, "toMs", 2 ** 62)
+    if a.get("days") is None:
+        return None, None
+    days, offset = _int(a, "days", 7, 1, 3650), _int(a, "dayOffset", 0, 0, 3650)
+    today = datetime.datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = today + datetime.timedelta(days=1 - offset)
+    start = end - datetime.timedelta(days=days)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def _rows(c, types, a, default_limit=20, order="time_ms desc", extra="", params=()):
+    where, args = [], []
+    if types:
+        where.append("source_type in (%s)" % ",".join("?" * len(types)))
+        args += types
+    f, t = _window(a)
+    if f is not None:
+        where.append("time_ms >= ? and time_ms < ?")
+        args += [f, t]
+    q = (a.get("query") or "").strip()
+    if q:
+        for word in q.split()[:8]:  # 多个词：全部包含
+            where.append("(coalesce(text,'') like ? or coalesce(title,'') like ?)")
+            args += ["%" + word + "%"] * 2
+    if extra:
+        where.append(extra)
+        args += list(params)
+    limit = _int(a, "limit", default_limit, 1, 500)
+    sql = "select raw from items %s order by %s limit ? offset ?" % (
+        ("where " + " and ".join(where)) if where else "", order)
+    return [json.loads(r["raw"]) for r in c.execute(sql, args + [limit, _int(a, "offset", 0, 0)])]
+
+
+def _pack(tool, results, a, default_chars):
+    """按 maxChars 截断总字符数，格式与手机 gateway 返回保持一致。"""
+    budget, out, truncated = _int(a, "maxChars", default_chars, 200, 2_000_000), [], False
+    for r in results:
+        t = r.get("text") or ""
+        if len(t) > budget:
+            r = dict(r, text=t[:budget] + "…")
+            truncated = True
+        budget -= len(r.get("text") or "")
+        out.append(r)
+        if budget <= 0:
+            truncated = truncated or len(out) < len(results)
+            break
+    return {"tool": tool, "results": out, "resultCount": len(out), "truncated": truncated, "source": "vps"}
+
+
+def q_available_days(c, a):
+    days, offset = _int(a, "days", 30, 1, 3650), _int(a, "offset", 0, 0, 3650)
+    f, t = _window({"days": days, "dayOffset": offset})   # available_days 的 offset 表示往前偏移天数
+    tz = "%+d hours" % (TZ.utcoffset(None).total_seconds() // 3600)
+    rows = c.execute(
+        "select date(time_ms/1000,'unixepoch',?) d, source_type, count(*) n from items "
+        "where time_ms >= ? and time_ms < ? group by d, source_type order by d", (tz, f, t)).fetchall()
+    by = {}
+    for r in rows:
+        by.setdefault(r["d"], {})[r["source_type"]] = r["n"]
+    res = [{"sourceType": "day", "title": d, "metadata": m,
+            "text": ", ".join("%s=%d" % kv for kv in sorted(m.items()))} for d, m in sorted(by.items())]
+    return {"tool": "available_days", "results": res, "resultCount": len(res), "source": "vps"}
+
+
+def q_search_evidence(c, a):
+    srcs = a.get("sources") or []
+    types = sorted({SOURCES.get(s, s) for s in srcs}) if srcs else ["meeting", "memory", "card", "todo"]
+    if a.get("includeTranscripts") and "transcript" not in types:
+        types.append("transcript")
+    return _pack("search_evidence", _rows(c, types, a, 20), a, 20000)
+
+
+def q_get_transcripts(c, a):
+    extra, params = "", ()
+    if a.get("sinceId") is not None:
+        extra, params = "id > ?", (_int(a, "sinceId", 0),)
+    order = "id asc" if a.get("sinceId") is not None else "time_ms desc"
+    return _pack("get_transcripts", _rows(c, ["transcript"], a, 50, order, extra, params), a, 40000)
+
+
+def q_get_memory_item(c, a):
+    st = SOURCES.get(a.get("sourceType", ""), a.get("sourceType", ""))
+    r = c.execute("select raw from items where source_type=? and id=?", (st, _int(a, "id", -1))).fetchone()
+    return {"tool": "get_memory_item", "results": [json.loads(r["raw"])] if r else [], "resultCount": 1 if r else 0,
+            "source": "vps"}
+
+
+def q_get_open_loops(c, a):
+    return _pack("get_open_loops", _rows(c, ["todo"], dict(a, days=a.get("days")), 50), a, 20000)
+
+
+def q_sync_status(c, a):
+    rows = c.execute("select source_type, count(*) n, max(time_ms) latest, max(received_at) recv "
+                     "from items group by source_type").fetchall()
+    fmt = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, TZ).isoformat(timespec="seconds") if ms else None
+    res = [{"sourceType": r["source_type"], "count": r["n"], "latestItem": fmt(r["latest"]),
+            "lastReceived": fmt((r["recv"] or 0) * 1000)} for r in rows]
+    return {"tool": "sync_status", "results": res, "resultCount": len(res), "source": "vps"}
+
+
+QUERIES = {
+    "available_days": q_available_days,
+    "search_evidence": q_search_evidence,
+    "get_transcripts": q_get_transcripts,
+    "get_memory_item": q_get_memory_item,
+    "get_open_loops": q_get_open_loops,
+    "sync_status": q_sync_status,
+}
+
+
+# ---------------- HTTP ----------------
+
 class H(BaseHTTPRequestHandler):
     server_version = "nginx"
     sys_version = ""
@@ -38,16 +202,29 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a):  # 不记录请求细节
         pass
 
-    def reply(self, code, obj):
-        b = json.dumps(obj).encode()
+    def reply(self, code, obj, headers=None):
+        b = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(b)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(b)
+        return b
 
     def do_GET(self):
         self.reply(404, {})
+
+    def _fresh(self, c, sig):
+        now = int(time.time())
+        c.execute("delete from seen_sigs where at < ?", (now - 2 * SKEW,))
+        try:
+            c.execute("insert into seen_sigs values(?,?)", (sig, now))
+            c.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
     def do_POST(self):
         try:
@@ -57,23 +234,52 @@ class H(BaseHTTPRequestHandler):
         if n <= 0 or n > MAX_BODY:
             return self.reply(413, {})
         body = self.rfile.read(n)
-        ts = self.headers.get("X-Push-Ts", "")
-        sig = self.headers.get("X-Push-Sig", "")
-        if not ts.isdigit() or abs(time.time() - int(ts)) > SKEW:
-            return self.reply(404, {})
-        exp = hmac.new(KEY, ts.encode() + b"\n" + hashlib.sha256(body).hexdigest().encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(exp, sig):
-            return self.reply(404, {})  # 鉴权失败与不存在不可区分
+        if self.headers.get("X-Read-Sig"):
+            return self.handle_read(body)
+        return self.handle_push(body)
 
+    def _check(self, key, ts, sig, *parts):
+        if not key or not ts.isdigit() or abs(time.time() - int(ts)) > SKEW:
+            return False
+        return hmac.compare_digest(sign(key, *parts), sig)
+
+    def handle_read(self, body):
+        ts, sig = self.headers.get("X-Read-Ts", ""), self.headers.get("X-Read-Sig", "")
+        if not self._check(READ_KEY, ts, sig, "read", ts, sha(body)):
+            return self.reply(404, {})
         c = db()
         try:
-            now = int(time.time())
-            c.execute("delete from seen_sigs where at < ?", (now - 2 * SKEW,))
-            try:
-                c.execute("insert into seen_sigs values(?,?)", (sig, now))
-            except sqlite3.IntegrityError:
+            if not self._fresh(c, sig):
                 return self.reply(409, {"error": "replay"})
-            new = 0
+            try:
+                req = json.loads(body)
+                fn = QUERIES[req.get("tool", "")]
+                args = req.get("args") or {}
+                if not isinstance(args, dict):
+                    raise ValueError
+                out, code = fn(c, args), 200
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                out, code = {"error": "bad request", "tools": sorted(QUERIES)}, 400
+            b = json.dumps(out, ensure_ascii=False).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(b)))
+            self.send_header("X-Read-Resp-Sig", sign(READ_KEY, "resp", sig, sha(b)))
+            self.end_headers()
+            self.wfile.write(b)
+        finally:
+            c.close()
+
+    def handle_push(self, body):
+        ts, sig = self.headers.get("X-Push-Ts", ""), self.headers.get("X-Push-Sig", "")
+        # 推送签名格式沿用 v1：HMAC(key, ts + "\n" + sha256hex(body))
+        if not self._check(PUSH_KEY, ts, sig, ts, sha(body)):
+            return self.reply(404, {})  # 鉴权失败与不存在不可区分
+        c = db()
+        try:
+            if not self._fresh(c, sig):
+                return self.reply(409, {"error": "replay"})
+            now, new = int(time.time()), 0
             for line in body.decode("utf-8").splitlines():
                 if not line.strip():
                     continue
