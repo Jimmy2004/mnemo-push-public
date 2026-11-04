@@ -14,3 +14,24 @@ mnemo-queue/
 __pycache__/
 .DS_Store
 *.apk
+
+# 本地配置与密钥（示例文件除外）
+.env.*
+!*.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.pem
+# 构建产物与数据
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
