@@ -1,5 +1,7 @@
 # Mnemo Push · iOS
 
+> ⚠️ **未经测试**：本目录代码从未在真机或模拟器上运行过，不提供 release。可以自行让 AI 帮忙开发和测试。
+
 Swift 5.9+、SwiftUI、iOS 16+，无第三方运行依赖。版本 0.3.2 (1)，Bundle ID 为 `dev.mnemo.push`。MnemoCore 也支持 macOS 13+。
 
 ## 生成工程与运行
