@@ -162,13 +162,13 @@ class MainActivity : AppCompatActivity() {
         return if (inHours()) n.toLong().times(60).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else n
     }
 
-    /** 返回错误文字；合法时为 null。上限 1440 分钟（24 小时），下限 15 分钟（系统定时任务最短间隔）。 */
+    /** 返回错误文字；合法时为 null。上限 1440 分钟（24 小时），下限 1 分钟；低于 15 分钟走自续任务链。 */
     private fun validateInterval(): String? {
         val m = intervalMinutes()
         val error = when {
             m == null -> "请输入整数"
             m > 1440 -> if (inHours()) "最多 24 小时" else "最多 1440 分钟（24 小时）"
-            m < 15 -> "最少 15 分钟（系统限制）"
+            m < Scheduler.MIN_MINUTES -> "最少 1 分钟"
             else -> null
         }
         findViewById<TextInputLayout>(R.id.intervalLayout).error = error

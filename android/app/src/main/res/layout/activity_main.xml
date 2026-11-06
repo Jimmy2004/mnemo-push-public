@@ -277,7 +277,7 @@
                             android:layout_weight="1"
                             android:layout_marginEnd="8dp"
                             android:hint="同步间隔"
-                            app:helperText="15 分钟 – 24 小时">
+                            app:helperText="1 分钟 – 24 小时；低于 15 分钟更耗电">
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/interval"
                                 android:layout_width="match_parent"

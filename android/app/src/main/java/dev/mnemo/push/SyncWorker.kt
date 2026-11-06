@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -63,7 +64,16 @@ internal object RecentLog {
 }
 
 class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
-    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+    override suspend fun doWork(): Result {
+        val result = sync()
+        // 短间隔（<15 分钟）用自续链：本次结束后排下一次；需要重试时由 WorkManager 自己重跑。
+        if (inputData.getBoolean(Scheduler.KEY_CHAIN, false) && result !is Result.Retry) {
+            runCatching { Scheduler.scheduleNextShort(applicationContext, SecureStore.load(applicationContext)) }
+        }
+        return result
+    }
+
+    private suspend fun sync(): Result = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             var config = Config()
             try {
@@ -105,13 +115,46 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 }
 
 object Scheduler {
+    const val MIN_MINUTES = 1
+    const val MAX_MINUTES = 1440
+    /** WorkManager 周期任务的系统下限；低于它改用自续的一次性任务链。 */
+    const val PERIODIC_MIN = 15
+    internal const val KEY_CHAIN = "chain"
+    private const val PERIODIC = "mnemo-sync"
+    private const val SHORT = "mnemo-sync-short"
+
+    private fun constraints() = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+
     fun apply(ctx: Context, config: Config) {
         val manager = WorkManager.getInstance(ctx)
-        if (config.autoSync) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(config.intervalMinutes.coerceIn(15, 1440).toLong(), TimeUnit.MINUTES)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
-            manager.enqueueUniquePeriodicWork("mnemo-sync", ExistingPeriodicWorkPolicy.UPDATE, request)
-        } else manager.cancelUniqueWork("mnemo-sync")
+        val minutes = config.intervalMinutes.coerceIn(MIN_MINUTES, MAX_MINUTES)
+        if (config.autoSync && minutes >= PERIODIC_MIN) {
+            manager.cancelUniqueWork(SHORT)
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(minutes.toLong(), TimeUnit.MINUTES)
+                .setConstraints(constraints()).build()
+            manager.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
+        } else if (config.autoSync) {
+            manager.cancelUniqueWork(PERIODIC)
+            enqueueShort(ctx, minutes, ExistingWorkPolicy.REPLACE)
+        } else {
+            manager.cancelUniqueWork(PERIODIC); manager.cancelUniqueWork(SHORT)
+        }
+    }
+
+    /** 由链上的 worker 在结束时调用；配置已改回长间隔或关闭时自然停止。 */
+    internal fun scheduleNextShort(ctx: Context, config: Config) {
+        val minutes = config.intervalMinutes.coerceIn(MIN_MINUTES, MAX_MINUTES)
+        if (!config.autoSync || minutes >= PERIODIC_MIN) return
+        // 正在运行的就是本链：APPEND_OR_REPLACE 会排在它之后，而不是取消它。
+        enqueueShort(ctx, minutes, ExistingWorkPolicy.APPEND_OR_REPLACE)
+    }
+
+    private fun enqueueShort(ctx: Context, minutes: Int, policy: ExistingWorkPolicy) {
+        WorkManager.getInstance(ctx).enqueueUniqueWork(SHORT, policy,
+            OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInitialDelay(minutes.toLong(), TimeUnit.MINUTES)
+                .setInputData(workDataOf(KEY_CHAIN to true))
+                .setConstraints(constraints()).build())
     }
 
     fun runNow(ctx: Context) {
