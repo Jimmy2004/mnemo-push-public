@@ -352,6 +352,7 @@
 
             <!-- 日志 -->
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/logCard"
                 style="@style/Mnemo.Card"
                 android:layout_marginTop="20dp">
                 <LinearLayout

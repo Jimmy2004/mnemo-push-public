@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         interval = findViewById(R.id.interval); logs = findViewById(R.id.logs)
         statusTitle = findViewById(R.id.statusTitle); statusDetail = findViewById(R.id.statusDetail)
         battery = findViewById(R.id.battery)
+        if (!resources.getBoolean(R.bool.show_logs)) findViewById<android.view.View>(R.id.logCard).visibility = android.view.View.GONE
         intervalUnit = findViewById(R.id.intervalUnit); device = findViewById(R.id.device)
         intervalUnit.setSimpleItems(units)
         intervalUnit.setOnItemClickListener { _, _, _, _ -> validateInterval() }

@@ -13,8 +13,27 @@ android {
         versionCode = 6
         versionName = "0.3.2"
     }
+    // 发布签名：密钥库与密码放在仓库外（~/.gradle/gradle.properties），未配置时 release 不签名
+    val ks = providers.gradleProperty("MNEMO_KEYSTORE").orNull
+    signingConfigs {
+        if (ks != null) create("release") {
+            storeFile = file(ks)
+            storePassword = providers.gradleProperty("MNEMO_KEYSTORE_PASSWORD").get()
+            keyAlias = providers.gradleProperty("MNEMO_KEY_ALIAS").get()
+            keyPassword = providers.gradleProperty("MNEMO_KEY_PASSWORD").get()
+        }
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = false
+            if (ks != null) signingConfig = signingConfigs.getByName("release")
+        }
+    }
+    // full：完整界面；nolog：隐藏底部「最近日志」卡片。两者包名相同，可互相覆盖安装
+    flavorDimensions += "ui"
+    productFlavors {
+        create("full") { dimension = "ui"; resValue("bool", "show_logs", "true") }
+        create("nolog") { dimension = "ui"; resValue("bool", "show_logs", "false") }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
