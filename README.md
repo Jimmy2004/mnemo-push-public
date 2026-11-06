@@ -56,6 +56,7 @@
 | 路径 | 说明 |
 |---|---|
 | `android/` | **Mnemo Push** 安卓 App（Kotlin / Material 3）：粘贴即配置、Keystore 加密密钥、WorkManager 定时推送、开机自启开关、保活指引 |
+| `ios/` | **Mnemo Push** iOS App（SwiftUI）：Keychain 密钥、本地队列、后台刷新，见 [iOS 说明](ios/README.md) |
 | `server/` | VPS 服务 `mnemo_recv.py`（写入 + 只读查询）、一键安装 `install.sh`、本机一键部署 `deploy.sh` |
 | `mcp/` | 电脑端只读 MCP `index.mjs` 与安装脚本 `install.sh` |
 | `phone/` | Termux 版脚本（App 的命令行替代方案） |
@@ -103,6 +104,10 @@ git clone https://github.com/<you>/mnemo-push && cd mnemo-push
 3. **② 云端**：复制 VPS 输出的 `PUSH_URL` / `PUSH_KEY` 两行 → 点「粘贴推送配置」→「测试连接」（显示延迟毫秒）。多台设备时填写「设备标识」。
 4. **③ 后台**：打开「定时自动同步」，输入间隔并选择分钟/小时（15 分钟 – 24 小时）；按需打开「开机后自动恢复同步」；依次完成「忽略电池优化」「允许自启动」「在最近任务中上锁」。
 5. 点「保存」，再点「立即同步」，在「最近日志」看到“同步成功”即可。
+
+### 手机：iOS
+
+工程生成、签名与运行步骤见 [ios/README.md](ios/README.md)。
 
 ### 3. 电脑：mnemosyne-cloud MCP
 

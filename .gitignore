@@ -35,3 +35,10 @@ local.properties
 *.db-journal
 *.sqlite
 *.sqlite3
+
+# SwiftPM / Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/
+xcuserdata/

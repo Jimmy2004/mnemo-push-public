@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.mnemo.push.sync</string>
+        <string>dev.mnemo.push.process</string>
+        <string>$(PRODUCT_BUNDLE_IDENTIFIER).continued.*</string>
+	</array>
+	<key>CFBundleDisplayName</key>
+	<string>Mnemo Push</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+        <string>processing</string>
+        <string>location</string>
+        <string>audio</string>
+	</array>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>仅用作后台唤醒信号，不记录、不上传位置。</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>仅用作后台唤醒信号，不记录、不上传位置。</string>
+    <key>NSMotionUsageDescription</key>
+    <string>仅用作同步触发信号，不记录、不上传运动数据。</string>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+</dict>
+</plist>
