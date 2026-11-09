@@ -10,8 +10,8 @@ android {
         applicationId = "dev.mnemo.push"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.3.3"
+        versionCode = 8
+        versionName = "0.3.4"
     }
     // 发布签名：密钥库与密码放在仓库外（~/.gradle/gradle.properties），未配置时 release 不签名
     val ks = providers.gradleProperty("MNEMO_KEYSTORE").orNull

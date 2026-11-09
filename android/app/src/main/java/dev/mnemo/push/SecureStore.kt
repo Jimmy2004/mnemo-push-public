@@ -58,7 +58,9 @@ object SecureStore {
             autoSync = p.getBoolean("autoSync", false), intervalMinutes = p.getInt("intervalMinutes", 15),
             days = p.getInt("days", 2), gatewayPort = p.getInt("gatewayPort", 8723),
             autoStart = p.getBoolean("autoStart", true), device = p.getString("device", "") ?: "",
-            intervalInHours = p.getBoolean("intervalInHours", false)) to e.message
+            intervalInHours = p.getBoolean("intervalInHours", false),
+            hideLauncherIcon = p.getBoolean("hideLauncherIcon", false),
+            hideFromRecents = p.getBoolean("hideFromRecents", false)) to e.message
     }
 
     fun load(ctx: Context): Config = prefs(ctx).let {
@@ -66,8 +68,14 @@ object SecureStore {
             it.getString("pushUrl", "") ?: "", decrypt(it.getString("pushKey", null)),
             it.getBoolean("autoSync", false), it.getInt("intervalMinutes", 15), it.getInt("days", 2),
             it.getInt("gatewayPort", 8723), it.getBoolean("autoStart", true), it.getString("device", "") ?: "",
-            it.getBoolean("intervalInHours", false))
+            it.getBoolean("intervalInHours", false), it.getBoolean("hideLauncherIcon", false),
+            it.getBoolean("hideFromRecents", false))
     }
+
+    /** 刷新开关无需解密密钥，也不影响尚未保存的其它输入。 */
+    fun loadHideLauncherIcon(ctx: Context) = prefs(ctx).getBoolean("hideLauncherIcon", false)
+
+    fun loadHideFromRecents(ctx: Context) = prefs(ctx).getBoolean("hideFromRecents", false)
 
     fun save(ctx: Context, config: Config) {
         // Encrypt both values before changing any stored configuration.
@@ -78,6 +86,8 @@ object SecureStore {
             .putBoolean("autoSync", config.autoSync).putInt("intervalMinutes", config.intervalMinutes)
             .putInt("days", config.days).putInt("gatewayPort", config.gatewayPort)
             .putBoolean("autoStart", config.autoStart).putString("device", config.device)
-            .putBoolean("intervalInHours", config.intervalInHours).commit()) { "无法保存配置" }
+            .putBoolean("intervalInHours", config.intervalInHours)
+            .putBoolean("hideLauncherIcon", config.hideLauncherIcon)
+            .putBoolean("hideFromRecents", config.hideFromRecents).commit()) { "无法保存配置" }
     }
 }

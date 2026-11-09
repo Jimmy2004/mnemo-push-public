@@ -26,6 +26,8 @@ data class Config(
     val device: String = "",
     /** 界面上以小时显示间隔（实际仍按分钟存储与调度）。 */
     val intervalInHours: Boolean = false,
+    val hideLauncherIcon: Boolean = false,
+    val hideFromRecents: Boolean = false,
 ) {
     val hasGateway get() = token.indexOf('.') in 1 until token.length - 1
     val hasPush get() = pushUrl.startsWith("https://") && pushKey.isNotBlank()

@@ -322,6 +322,33 @@
 
                     <com.google.android.material.divider.MaterialDivider android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="16dp" />
 
+                    <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="外观与隐藏" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/hideRecents"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="隐藏后台任务列表" />
+                    <TextView android:id="@+id/hideRecentsHint" style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="开启后，本应用不会出现在最近任务（多任务）界面。注意：这样就无法在该界面给本应用「上锁」，后台保活会变弱。" />
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/hideIcon"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:enabled="false"
+                        android:text="隐藏桌面图标" />
+                    <TextView android:id="@+id/hideIconHint" style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="请先完成拨号盘验证：在系统拨号盘输入 *#*#66366#*#* 成功打开本应用一次后，此开关才可用。" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/testDialer"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="测试拨号盘启动" />
+
+                    <com.google.android.material.divider.MaterialDivider android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginVertical="16dp" />
+
                     <TextView style="@style/Mnemo.Title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="防止被系统清理" />
                     <TextView android:id="@+id/keepAliveHint" style="@style/Mnemo.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" />
 

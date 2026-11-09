@@ -25,16 +25,38 @@
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.MnemoPush">
-        <activity android:name=".MainActivity" android:exported="true">
+        <!-- 主界面本身不再挂 MAIN/LAUNCHER 过滤器，桌面入口全部交给下面的 .Launcher 别名 -->
+        <activity android:name=".MainActivity" android:exported="true" />
+
+        <!-- 桌面图标别名：targetActivity 指向 MainActivity，禁用它就能把图标从桌面隐藏 -->
+        <activity-alias
+            android:name=".Launcher"
+            android:targetActivity=".MainActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
         <receiver android:name=".BootReceiver" android:exported="false" android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 拨号 secret code 接收器：拨 *#*#66366#*#* 直接唤起应用，用于图标被隐藏后重新打开 -->
+        <receiver android:name=".SecretCodeReceiver" android:exported="true" android:enabled="true">
+            <!-- host 必须与 StealthLauncher.SECRET_CODE 保持一致，只填写数字。 -->
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data android:scheme="android_secret_code" android:host="66366" />
+            </intent-filter>
+            <!-- API 29+ 的新 action：过渡期两个 action 都会广播，各自单独声明。 -->
+            <intent-filter>
+                <action android:name="android.telephony.action.SECRET_CODE" />
+                <data android:scheme="android_secret_code" android:host="66366" />
             </intent-filter>
         </receiver>
     </application>
